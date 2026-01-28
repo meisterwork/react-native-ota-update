@@ -167,8 +167,10 @@ export class OtaUpdateService {
       });
 
       if (!response.ok) {
-        if (response.status === 404) {
-          this.log(`No manifest found for build ${this.buildVersion}`);
+        // 404 = file not found, 403 = access denied (S3 returns this when file doesn't exist and no ListBucket permission)
+        // Both mean no OTA manifest exists for this build - this is normal, not an error
+        if (response.status === 404 || response.status === 403) {
+          this.log(`No OTA manifest for build ${this.buildVersion} - using bundled JS`);
           this.updateState({
             status: UpdateStatus.IDLE,
             lastCheckTime: new Date().toISOString(),
