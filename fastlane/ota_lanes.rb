@@ -4,17 +4,19 @@
 # Required configuration (set before importing):
 #   $OTA_S3_BUCKET - S3 bucket name
 #   $OTA_S3_REGION - AWS region (default: eu-central-1)
-#   $OTA_ALL_APPS - Array of app configs: [{flavor: "MyApp", version: "1.0.0"}, ...]
+#   $OTA_ALL_APPS - Array of app configs: [{flavor: "MyApp", version: "1.0.0", buildVersion: 123}, ...]
 #
 # Example:
 #   $OTA_S3_BUCKET = "my-app-ota"
 #   $OTA_S3_REGION = "eu-central-1"
-#   $OTA_ALL_APPS = [{flavor: "MyApp", version: "1.0.0"}]
+#   $OTA_ALL_APPS = [{flavor: "MyApp", version: "1.0.0", buildVersion: 1}]
 #
 # Usage:
 #   fastlane ota_bundle app:MyApp platform:android
 #   fastlane ota_bundle app:MyApp platform:ios
 #   fastlane ota_bundle app:MyApp  # defaults to android
+#
+# Note: buildVersion should be updated after each beta/release build
 
 $OTA_S3_REGION ||= "eu-central-1"
 $OTA_S3_BASE_URL = "https://s3.#{$OTA_S3_REGION}.amazonaws.com"
@@ -36,12 +38,16 @@ lane :ota_bundle do |options|
 
     project_root = File.expand_path("../..", __dir__)
 
-    # Get build version based on platform
-    if platform == "ios"
-      # For iOS, get build number from Info.plist or use xcodeproj
-      build_version = get_build_number rescue 1
-    else
-      build_version = get_version_code(gradle_file_path: "app/build.gradle")
+    # Get build version from app config (should be set after each beta/release build)
+    # Falls back to reading from project files if not set
+    build_version = app[:buildVersion]
+    unless build_version
+      if platform == "ios"
+        build_version = get_build_number rescue 1
+      else
+        build_version = get_version_code(gradle_file_path: "app/build.gradle")
+      end
+      puts "Warning: No buildVersion in app config for #{flavor}, reading from project files: #{build_version}"
     end
 
     app_folder = flavor.downcase
@@ -182,14 +188,17 @@ lane :ota_status do |options|
   all_apps = extractOtaAppsFromOptions(options)
   platform = options[:platform] || "android"
 
-  if platform == "ios"
-    build_version = options[:build] || (get_build_number rescue 1)
-  else
-    build_version = options[:build] || get_version_code(gradle_file_path: "app/build.gradle")
-  end
-
   all_apps.each do |app|
     flavor = app[:flavor]
+    # Use build option if provided, otherwise use app's stored buildVersion
+    build_version = options[:build] || app[:buildVersion]
+    unless build_version
+      if platform == "ios"
+        build_version = get_build_number rescue 1
+      else
+        build_version = get_version_code(gradle_file_path: "app/build.gradle")
+      end
+    end
     app_folder = flavor.downcase
     manifest_url = "#{$OTA_S3_BASE_URL}/#{$OTA_S3_BUCKET}/#{app_folder}/#{platform}/#{build_version}/manifest.json"
 
@@ -239,4 +248,28 @@ def verifyWhitelabelConfig(flavor)
     UI.user_error!("Whitelabel config mismatch! Expected '#{expected_scheme}' but got '#{url_scheme}'")
   end
   puts "Verified whitelabel config: #{url_scheme}"
+end
+
+# Helper to update buildVersion for an app in the Fastfile
+# Call this after beta/release builds to save the new buildVersion
+# Usage: updateOtaAppBuildVersion("MyApp", 123, "path/to/Fastfile")
+def updateOtaAppBuildVersion(flavor, new_build_version, fastfile_path = nil)
+  fastfile_path ||= File.expand_path("../Fastfile", __dir__)
+  return unless File.exist?(fastfile_path)
+
+  content = File.read(fastfile_path)
+
+  # Match the app entry and update buildVersion
+  # Pattern works even when there are more fields after buildVersion (e.g., gdriveFolderId)
+  updated = content.gsub(
+    /(\{flavor:\s*"#{flavor}",.*?buildVersion:\s*)\d+/m,
+    "\\1#{new_build_version}"
+  )
+
+  if content != updated
+    File.write(fastfile_path, updated)
+    puts "Updated #{flavor} buildVersion to #{new_build_version} in Fastfile"
+  else
+    puts "Warning: Could not find #{flavor} buildVersion entry to update"
+  end
 end

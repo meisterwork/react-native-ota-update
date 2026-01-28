@@ -33,6 +33,8 @@
   "files": [
     "lib/",
     "android/",
+    "ios/",
+    "fastlane/",
     "src/",
     "react-native.config.js"
   ]
