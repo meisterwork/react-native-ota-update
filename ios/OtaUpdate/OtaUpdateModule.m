@@ -119,12 +119,26 @@ RCT_EXPORT_MODULE();
     NSInteger buildVersion = [buildString integerValue];
     NSInteger lastKnownBuildVersion = [defaults integerForKey:kLastKnownBuildVersion];
 
+    // Check if we need to reset OTA state:
+    // 1. Build version changed (lastKnownBuildVersion != 0 && differs from current)
+    // 2. Migration case: lastKnownBuildVersion not set but there's an active bundle from old version
+    NSString *bundlesDir = [self bundlesDirectory];
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    NSString *activePath = [bundlesDir stringByAppendingPathComponent:kActiveBundle];
+    BOOL hasActiveBundle = [fileManager fileExistsAtPath:activePath];
+
+    BOOL shouldReset = NO;
     if (lastKnownBuildVersion != 0 && lastKnownBuildVersion != buildVersion) {
         RCTLogInfo(@"[OtaUpdate] Native build changed from %ld to %ld - clearing OTA bundles", (long)lastKnownBuildVersion, (long)buildVersion);
+        shouldReset = YES;
+    } else if (lastKnownBuildVersion == 0 && hasActiveBundle) {
+        // Migration: first run with new code but there's an old OTA bundle - clear it
+        RCTLogInfo(@"[OtaUpdate] Migration: clearing legacy OTA bundle for build %ld", (long)buildVersion);
+        shouldReset = YES;
+    }
 
+    if (shouldReset) {
         // Clear all OTA bundles and state
-        NSString *bundlesDir = [self bundlesDirectory];
-        NSFileManager *fileManager = [NSFileManager defaultManager];
         [fileManager removeItemAtPath:bundlesDir error:nil];
 
         // Reset preferences

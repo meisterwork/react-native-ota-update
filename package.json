@@ -1,6 +1,6 @@
 {
   "name": "@meisterwork/react-native-ota-update",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "S3-based OTA bundle updates for React Native apps",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
