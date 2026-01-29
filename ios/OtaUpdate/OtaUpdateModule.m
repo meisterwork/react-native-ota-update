@@ -8,6 +8,7 @@ static NSString *const kCurrentBundleVersion = @"currentBundleVersion";
 static NSString *const kPendingBundleVersion = @"pendingBundleVersion";
 static NSString *const kStartCount = @"startCount";
 static NSString *const kBundleLoadFailed = @"bundleLoadFailed";
+static NSString *const kLastKnownBuildVersion = @"lastKnownBuildVersion";
 
 static NSString *const kBundlesDir = @"bundles";
 static NSString *const kPendingBundle = @"pending.bundle";
@@ -112,6 +113,37 @@ RCT_EXPORT_MODULE();
 
 + (NSURL * _Nullable)bundleURL
 {
+    // Check if native build version changed - if so, reset OTA state
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSString *buildString = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleVersion"];
+    NSInteger buildVersion = [buildString integerValue];
+    NSInteger lastKnownBuildVersion = [defaults integerForKey:kLastKnownBuildVersion];
+
+    if (lastKnownBuildVersion != 0 && lastKnownBuildVersion != buildVersion) {
+        RCTLogInfo(@"[OtaUpdate] Native build changed from %ld to %ld - clearing OTA bundles", (long)lastKnownBuildVersion, (long)buildVersion);
+
+        // Clear all OTA bundles and state
+        NSString *bundlesDir = [self bundlesDirectory];
+        NSFileManager *fileManager = [NSFileManager defaultManager];
+        [fileManager removeItemAtPath:bundlesDir error:nil];
+
+        // Reset preferences
+        [defaults setInteger:0 forKey:kCurrentBundleVersion];
+        [defaults setInteger:0 forKey:kPendingBundleVersion];
+        [defaults setInteger:0 forKey:kStartCount];
+        [defaults setBool:NO forKey:kBundleLoadFailed];
+        [defaults setInteger:buildVersion forKey:kLastKnownBuildVersion];
+        [defaults synchronize];
+
+        return nil; // Use default bundle since OTA was reset
+    }
+
+    // Update last known build version if not set
+    if (lastKnownBuildVersion == 0) {
+        [defaults setInteger:buildVersion forKey:kLastKnownBuildVersion];
+        [defaults synchronize];
+    }
+
     // Check for rollback
     if ([self hasBundleLoadFailed]) {
         NSString *fallbackPath = [self getFallbackBundlePath];
@@ -341,12 +373,34 @@ RCT_EXPORT_METHOD(getCurrentBundleInfo:(RCTPromiseResolveBlock)resolve
 {
     @try {
         NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-        NSInteger currentBundleVersion = [defaults integerForKey:kCurrentBundleVersion];
-        NSInteger pendingVersion = [defaults integerForKey:kPendingBundleVersion];
 
         // Get app version
         NSString *buildString = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleVersion"];
         NSInteger buildVersion = [buildString integerValue];
+
+        // Check if native build version changed - if so, reset OTA state
+        NSInteger lastKnownBuildVersion = [defaults integerForKey:kLastKnownBuildVersion];
+        if (lastKnownBuildVersion != 0 && lastKnownBuildVersion != buildVersion) {
+            RCTLogInfo(@"[OtaUpdate] Native build changed from %ld to %ld - resetting OTA state", (long)lastKnownBuildVersion, (long)buildVersion);
+
+            // Clear all OTA bundles and state
+            NSString *bundlesDir = [[self class] bundlesDirectory];
+            NSFileManager *fileManager = [NSFileManager defaultManager];
+            [fileManager removeItemAtPath:bundlesDir error:nil];
+
+            // Reset preferences
+            [defaults setInteger:0 forKey:kCurrentBundleVersion];
+            [defaults setInteger:0 forKey:kPendingBundleVersion];
+            [defaults setInteger:0 forKey:kStartCount];
+            [defaults setBool:NO forKey:kBundleLoadFailed];
+        }
+
+        // Update last known build version
+        [defaults setInteger:buildVersion forKey:kLastKnownBuildVersion];
+        [defaults synchronize];
+
+        NSInteger currentBundleVersion = [defaults integerForKey:kCurrentBundleVersion];
+        NSInteger pendingVersion = [defaults integerForKey:kPendingBundleVersion];
 
         NSString *bundlesDir = [[self class] bundlesDirectory];
         NSFileManager *fileManager = [NSFileManager defaultManager];
