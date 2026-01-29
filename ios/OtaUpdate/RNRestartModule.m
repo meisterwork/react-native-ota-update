@@ -1,7 +1,10 @@
 #import "RNRestartModule.h"
 #import <React/RCTBridge.h>
+#import <React/RCTReloadCommand.h>
 
 @implementation RNRestartModule
+
+@synthesize bridge = _bridge;
 
 RCT_EXPORT_MODULE();
 
@@ -23,10 +26,7 @@ RCT_EXPORT_METHOD(restart)
 
 - (void)performRestart
 {
-    RCTBridge *bridge = [RCTBridge currentBridge];
-    if (bridge) {
-        [bridge reload];
-    }
+    RCTTriggerReloadCommandListeners(@"OTA Update");
 }
 
 @end
