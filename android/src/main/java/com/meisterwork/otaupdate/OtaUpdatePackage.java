@@ -18,6 +18,7 @@ public class OtaUpdatePackage implements ReactPackage {
     public List<NativeModule> createNativeModules(@NonNull ReactApplicationContext reactContext) {
         List<NativeModule> modules = new ArrayList<>();
         modules.add(new OtaUpdateModule(reactContext));
+        modules.add(new RNRestartModule(reactContext));
         return modules;
     }
 

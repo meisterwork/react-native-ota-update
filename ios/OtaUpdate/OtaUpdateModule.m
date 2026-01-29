@@ -1,6 +1,7 @@
 #import "OtaUpdateModule.h"
 #import <React/RCTLog.h>
 #import <CommonCrypto/CommonDigest.h>
+#import <SSZipArchive/SSZipArchive.h>
 
 static NSString *const kPrefsName = @"OtaUpdatePrefs";
 static NSString *const kCurrentBundleVersion = @"currentBundleVersion";
@@ -493,22 +494,15 @@ RCT_EXPORT_METHOD(deletePendingBundle:(RCTPromiseResolveBlock)resolve
 
 - (BOOL)unzipFile:(NSString *)zipPath toDestination:(NSString *)destPath
 {
-    // Simple unzip using NSTask (works for basic zip files)
-    // For production, consider using SSZipArchive or similar
-    NSTask *task = [[NSTask alloc] init];
-    [task setLaunchPath:@"/usr/bin/unzip"];
-    [task setArguments:@[@"-o", zipPath, @"-d", destPath]];
-    [task setStandardOutput:[NSPipe pipe]];
-    [task setStandardError:[NSPipe pipe]];
+    NSError *error = nil;
+    BOOL success = [SSZipArchive unzipFileAtPath:zipPath toDestination:destPath overwrite:YES password:nil error:&error];
 
-    @try {
-        [task launch];
-        [task waitUntilExit];
-        return task.terminationStatus == 0;
-    } @catch (NSException *exception) {
-        RCTLogError(@"[OtaUpdate] Unzip failed: %@", exception.reason);
+    if (!success || error) {
+        RCTLogError(@"[OtaUpdate] Unzip failed: %@", error.localizedDescription);
         return NO;
     }
+
+    return YES;
 }
 
 @end

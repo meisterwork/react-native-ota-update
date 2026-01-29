@@ -33,10 +33,14 @@ lane :ota_bundle do |options|
   platform = options[:platform] || "android"
 
   all_apps.each do |app|
-    flavor = app[:flavor]
+    # Support both :flavor (Android) and :app_name (iOS) keys
+    flavor = app[:flavor] || app[:app_name]
     version = app[:version]
 
-    project_root = File.expand_path("../..", __dir__)
+    # Get project root from the Fastfile location, not this file's location
+    # FastlaneCore::FastlaneFolder.path returns the fastlane folder (e.g., /path/to/ios/fastlane)
+    fastlane_folder = FastlaneCore::FastlaneFolder.path
+    project_root = File.expand_path("../..", fastlane_folder)
 
     # Get build version from app config (should be set after each beta/release build)
     # Falls back to reading from project files if not set
@@ -189,7 +193,8 @@ lane :ota_status do |options|
   platform = options[:platform] || "android"
 
   all_apps.each do |app|
-    flavor = app[:flavor]
+    # Support both :flavor (Android) and :app_name (iOS) keys
+    flavor = app[:flavor] || app[:app_name]
     # Use build option if provided, otherwise use app's stored buildVersion
     build_version = options[:build] || app[:buildVersion]
     unless build_version
@@ -222,20 +227,30 @@ end
 def extractOtaAppsFromOptions(options)
   apps = $OTA_ALL_APPS
 
-  if options[:app]
-    apps = $OTA_ALL_APPS.select { |item| item[:flavor] == options[:app] }
+  # Support both app: and app_name: parameters
+  app_filter = options[:app] || options[:app_name]
+  if app_filter
+    # Match against both :flavor (Android) and :app_name (iOS) keys
+    apps = $OTA_ALL_APPS.select { |item|
+      (item[:flavor]&.downcase == app_filter.downcase) ||
+      (item[:app_name]&.downcase == app_filter.downcase)
+    }
   end
 
   if options[:apps]
-    app_names = options[:apps].split(',')
-    apps = $OTA_ALL_APPS.select { |item| app_names.include?(item[:flavor]) }
+    app_names = options[:apps].split(',').map(&:downcase)
+    apps = $OTA_ALL_APPS.select { |item|
+      app_names.include?(item[:flavor]&.downcase) ||
+      app_names.include?(item[:app_name]&.downcase)
+    }
   end
 
   apps
 end
 
 def verifyWhitelabelConfig(flavor)
-  project_root = File.expand_path("../..", __dir__)
+  fastlane_folder = FastlaneCore::FastlaneFolder.path
+  project_root = File.expand_path("../..", fastlane_folder)
   whitelabel_config_path = "#{project_root}/whitelabel/whitelabel-config.json"
   return unless File.exist?(whitelabel_config_path)
 
@@ -260,9 +275,10 @@ def updateOtaAppBuildVersion(flavor, new_build_version, fastfile_path = nil)
   content = File.read(fastfile_path)
 
   # Match the app entry and update buildVersion
+  # Supports both Android format ({flavor: "..."}) and iOS format ({app_name: "..."})
   # Pattern works even when there are more fields after buildVersion (e.g., gdriveFolderId)
   updated = content.gsub(
-    /(\{flavor:\s*"#{flavor}",.*?buildVersion:\s*)\d+/m,
+    /(\{(?:flavor|app_name):\s*['"]#{flavor}['"],.*?buildVersion:\s*)\d+/m,
     "\\1#{new_build_version}"
   )
 
