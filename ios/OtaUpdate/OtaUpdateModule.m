@@ -173,10 +173,10 @@ RCT_EXPORT_MODULE();
     [self incrementStartCount];
 
     // Check for active bundle
-    NSString *activePath = [self getActiveBundlePath];
-    if (activePath) {
-        RCTLogInfo(@"[OtaUpdate] Using custom bundle: %@", activePath);
-        return [NSURL fileURLWithPath:activePath];
+    NSString *currentActivePath = [self getActiveBundlePath];
+    if (currentActivePath) {
+        RCTLogInfo(@"[OtaUpdate] Using custom bundle: %@", currentActivePath);
+        return [NSURL fileURLWithPath:currentActivePath];
     }
 
     return nil; // Use default bundle
