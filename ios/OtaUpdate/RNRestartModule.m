@@ -26,7 +26,15 @@ RCT_EXPORT_METHOD(restart)
 
 - (void)performRestart
 {
+    // In production, we need to actually exit the app for the new bundle to load
+    // RCTTriggerReloadCommandListeners only works in development
+#if DEBUG
     RCTTriggerReloadCommandListeners(@"OTA Update");
+#else
+    // Exit the app - user will need to reopen it
+    // The new bundle will be loaded on next launch
+    exit(0);
+#endif
 }
 
 @end

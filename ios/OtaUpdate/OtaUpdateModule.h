@@ -36,4 +36,10 @@
  */
 + (NSURL * _Nullable)bundleURL;
 
+/**
+ * Get debug info about bundle loading status.
+ * Returns a dictionary with paths, file existence, and what bundleURL would return.
+ */
++ (NSDictionary *)getDebugInfo;
+
 @end

@@ -66,6 +66,21 @@ export interface BundleInfo {
   isUsingCustomBundle: boolean;
 }
 
+export interface BundleDebugInfo {
+  buildVersion: number;
+  lastKnownBuildVersion: number;
+  currentBundleVersion: number;
+  bundlesDir: string;
+  activePath: string;
+  activeExists: boolean;
+  activeSize: number;
+  pendingExists: boolean;
+  fallbackExists: boolean;
+  bundleLoadFailed: boolean;
+  bundleURLResult: string;
+  expectedBehavior: string;
+}
+
 export interface ReloadWindowConfig {
   start: string; // HH:mm format
   end: string;   // HH:mm format

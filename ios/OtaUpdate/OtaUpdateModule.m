@@ -15,6 +15,7 @@ static NSString *const kPendingBundle = @"pending.bundle";
 static NSString *const kActiveBundle = @"active.bundle";
 static NSString *const kFallbackBundle = @"fallback.bundle";
 static NSString *const kPendingAssetsDir = @"pending_assets";
+static NSString *const kActiveAssetsDir = @"assets";
 static NSString *const kFallbackAssetsDir = @"fallback_assets";
 
 @implementation OtaUpdateModule
@@ -58,10 +59,17 @@ RCT_EXPORT_MODULE();
     NSString *bundlesDir = [self bundlesDirectory];
     NSString *activeBundlePath = [bundlesDir stringByAppendingPathComponent:kActiveBundle];
 
+    NSLog(@"[OtaUpdate] Checking active bundle at: %@", activeBundlePath);
+
     NSFileManager *fileManager = [NSFileManager defaultManager];
-    if ([fileManager fileExistsAtPath:activeBundlePath]) {
+    BOOL exists = [fileManager fileExistsAtPath:activeBundlePath];
+    NSLog(@"[OtaUpdate] Active bundle exists: %@", exists ? @"YES" : @"NO");
+
+    if (exists) {
         NSDictionary *attrs = [fileManager attributesOfItemAtPath:activeBundlePath error:nil];
-        if ([attrs fileSize] > 0) {
+        unsigned long long fileSize = [attrs fileSize];
+        NSLog(@"[OtaUpdate] Active bundle size: %llu bytes", fileSize);
+        if (fileSize > 0) {
             return activeBundlePath;
         }
     }
@@ -113,11 +121,32 @@ RCT_EXPORT_MODULE();
 
 + (NSURL * _Nullable)bundleURL
 {
+    NSLog(@"[OtaUpdate] bundleURL called");
+
+    // Write to file for debugging (visible from JS later)
+    static int callCount = 0;
+    callCount++;
+    NSString *debugPath = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject stringByAppendingPathComponent:@"bundleURL_debug.txt"];
+    NSString *timestamp = [NSDateFormatter localizedStringFromDate:[NSDate date] dateStyle:NSDateFormatterShortStyle timeStyle:NSDateFormatterLongStyle];
+    NSString *logEntry = [NSString stringWithFormat:@"[%@] bundleURL called (count: %d)\n", timestamp, callCount];
+
+    NSFileManager *fm = [NSFileManager defaultManager];
+    if ([fm fileExistsAtPath:debugPath]) {
+        NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:debugPath];
+        [fh seekToEndOfFile];
+        [fh writeData:[logEntry dataUsingEncoding:NSUTF8StringEncoding]];
+        [fh closeFile];
+    } else {
+        [logEntry writeToFile:debugPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    }
+
     // Check if native build version changed - if so, reset OTA state
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     NSString *buildString = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleVersion"];
     NSInteger buildVersion = [buildString integerValue];
     NSInteger lastKnownBuildVersion = [defaults integerForKey:kLastKnownBuildVersion];
+
+    NSLog(@"[OtaUpdate] buildVersion=%ld, lastKnownBuildVersion=%ld", (long)buildVersion, (long)lastKnownBuildVersion);
 
     // Check if we need to reset OTA state:
     // 1. Build version changed (lastKnownBuildVersion != 0 && differs from current)
@@ -174,9 +203,34 @@ RCT_EXPORT_MODULE();
 
     // Check for active bundle
     NSString *currentActivePath = [self getActiveBundlePath];
+    NSLog(@"[OtaUpdate] getActiveBundlePath returned: %@", currentActivePath ?: @"nil");
+
     if (currentActivePath) {
+        NSURL *bundleURL = [NSURL fileURLWithPath:currentActivePath];
+        NSLog(@"[OtaUpdate] Returning OTA bundle URL: %@", bundleURL);
         RCTLogInfo(@"[OtaUpdate] Using custom bundle: %@", currentActivePath);
-        return [NSURL fileURLWithPath:currentActivePath];
+
+        // Log to debug file
+        NSString *debugPath = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject stringByAppendingPathComponent:@"bundleURL_debug.txt"];
+        NSString *logEntry = [NSString stringWithFormat:@"  -> Returning OTA: %@\n", bundleURL.absoluteString];
+        NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:debugPath];
+        [fh seekToEndOfFile];
+        [fh writeData:[logEntry dataUsingEncoding:NSUTF8StringEncoding]];
+        [fh closeFile];
+
+        return bundleURL;
+    }
+
+    NSLog(@"[OtaUpdate] Returning nil - will use default bundle");
+
+    // Log to debug file
+    {
+        NSString *dp = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject stringByAppendingPathComponent:@"bundleURL_debug.txt"];
+        NSString *le = @"  -> Returning nil (default bundle)\n";
+        NSFileHandle *f = [NSFileHandle fileHandleForWritingAtPath:dp];
+        [f seekToEndOfFile];
+        [f writeData:[le dataUsingEncoding:NSUTF8StringEncoding]];
+        [f closeFile];
     }
 
     return nil; // Use default bundle
@@ -355,11 +409,16 @@ RCT_EXPORT_METHOD(applyPendingBundle:(RCTPromiseResolveBlock)resolve
         [fileManager moveItemAtPath:pendingPath toPath:activePath error:nil];
 
         // Handle assets
+        NSString *activeAssetsDir = [bundlesDir stringByAppendingPathComponent:kActiveAssetsDir];
         if ([fileManager fileExistsAtPath:pendingAssetsDir]) {
-            [fileManager removeItemAtPath:fallbackAssetsDir error:nil];
-            // Move current assets to fallback, pending to current
-            // For iOS, assets are typically in the pending_assets folder
-            [fileManager moveItemAtPath:pendingAssetsDir toPath:fallbackAssetsDir error:nil];
+            // Move current active assets to fallback
+            if ([fileManager fileExistsAtPath:activeAssetsDir]) {
+                [fileManager removeItemAtPath:fallbackAssetsDir error:nil];
+                [fileManager moveItemAtPath:activeAssetsDir toPath:fallbackAssetsDir error:nil];
+            }
+            // Move pending assets to active
+            [fileManager moveItemAtPath:pendingAssetsDir toPath:activeAssetsDir error:nil];
+            RCTLogInfo(@"[OtaUpdate] Assets moved to active: %@", activeAssetsDir);
         }
 
         // Update version
@@ -530,6 +589,72 @@ RCT_EXPORT_METHOD(deletePendingBundle:(RCTPromiseResolveBlock)resolve
     } @catch (NSException *exception) {
         reject(@"DELETE_ERROR", exception.reason, nil);
     }
+}
+
+RCT_EXPORT_METHOD(getDebugInfo:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+{
+    resolve([[self class] getDebugInfo]);
+}
+
++ (NSDictionary *)getDebugInfo
+{
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+
+    NSString *buildString = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleVersion"];
+    NSInteger buildVersion = [buildString integerValue];
+    NSInteger lastKnownBuildVersion = [defaults integerForKey:kLastKnownBuildVersion];
+    NSInteger currentBundleVersion = [defaults integerForKey:kCurrentBundleVersion];
+
+    NSString *bundlesDir = [self bundlesDirectory];
+    NSString *activePath = [bundlesDir stringByAppendingPathComponent:kActiveBundle];
+    NSString *pendingPath = [bundlesDir stringByAppendingPathComponent:kPendingBundle];
+    NSString *fallbackPath = [bundlesDir stringByAppendingPathComponent:kFallbackBundle];
+
+    BOOL activeExists = [fileManager fileExistsAtPath:activePath];
+    BOOL pendingExists = [fileManager fileExistsAtPath:pendingPath];
+    BOOL fallbackExists = [fileManager fileExistsAtPath:fallbackPath];
+
+    NSDictionary *activeAttrs = [fileManager attributesOfItemAtPath:activePath error:nil];
+    NSNumber *activeSize = activeAttrs ? @([activeAttrs fileSize]) : @0;
+
+    NSURL *bundleURLResult = [self bundleURL];
+    NSString *bundleURLString = bundleURLResult ? [bundleURLResult absoluteString] : @"nil (using default bundle)";
+
+    // Check what bundleURL would return (without side effects)
+    NSString *expectedBehavior = @"unknown";
+    if (lastKnownBuildVersion != 0 && lastKnownBuildVersion != buildVersion) {
+        expectedBehavior = @"RESET: build version changed";
+    } else if (lastKnownBuildVersion == 0 && activeExists) {
+        expectedBehavior = @"RESET: migration (legacy bundle)";
+    } else if ([self hasBundleLoadFailed]) {
+        expectedBehavior = @"ROLLBACK: bundle load failed";
+    } else if (activeExists && [activeSize longLongValue] > 0) {
+        expectedBehavior = @"USE OTA: active bundle found";
+    } else {
+        expectedBehavior = @"USE DEFAULT: no active bundle";
+    }
+
+    // Read startup debug log
+    NSString *debugPath = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject stringByAppendingPathComponent:@"bundleURL_debug.txt"];
+    NSString *startupLog = [NSString stringWithContentsOfFile:debugPath encoding:NSUTF8StringEncoding error:nil] ?: @"No startup log";
+
+    return @{
+        @"buildVersion": @(buildVersion),
+        @"lastKnownBuildVersion": @(lastKnownBuildVersion),
+        @"currentBundleVersion": @(currentBundleVersion),
+        @"bundlesDir": bundlesDir ?: @"nil",
+        @"activePath": activePath ?: @"nil",
+        @"activeExists": @(activeExists),
+        @"activeSize": activeSize,
+        @"pendingExists": @(pendingExists),
+        @"fallbackExists": @(fallbackExists),
+        @"bundleLoadFailed": @([self hasBundleLoadFailed]),
+        @"bundleURLResult": bundleURLString,
+        @"expectedBehavior": expectedBehavior,
+        @"startupLog": startupLog,
+    };
 }
 
 #pragma mark - Helper Methods

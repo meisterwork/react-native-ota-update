@@ -1,4 +1,4 @@
-import { BundleInfo, OtaUpdateConfig, OtaUpdateState, OtaUpdateListener, ReloadWindowConfig } from './types';
+import { BundleInfo, BundleDebugInfo, OtaUpdateConfig, OtaUpdateState, OtaUpdateListener, ReloadWindowConfig } from './types';
 export declare class OtaUpdateService {
     private config;
     private state;
@@ -76,6 +76,11 @@ export declare class OtaUpdateService {
      * Rollback to the fallback bundle.
      */
     rollbackToFallback(): Promise<boolean>;
+    /**
+     * Get debug info about bundle loading (iOS only).
+     * Useful for diagnosing why OTA bundles might not be loading.
+     */
+    getDebugInfo(): Promise<BundleDebugInfo | null>;
     private initManifestUrl;
     private downloadUpdate;
     private tryApplyPendingBundle;

@@ -82,7 +82,7 @@ lane :ota_bundle do |options|
     # Copy whitelabel if script exists
     whitelabel_script = "#{project_root}/copy_whitelabel_files.sh"
     if File.exist?(whitelabel_script)
-      sh("sh #{whitelabel_script} #{flavor.downcase}")
+      sh("cd #{project_root} && sh #{whitelabel_script} #{flavor.downcase}")
       verifyWhitelabelConfig(flavor) if defined?(verifyWhitelabelConfig)
     end
 
@@ -130,8 +130,11 @@ lane :ota_bundle do |options|
 
     assets_dir = "#{build_dir}/assets"
     assets_zip = "#{build_dir}/assets.zip"
-    if File.directory?(assets_dir)
-      sh("cd #{assets_dir} && zip -r #{assets_zip} .")
+    # React Native creates assets/assets/... structure, zip from inner level
+    inner_assets_dir = "#{assets_dir}/assets"
+    zip_source_dir = File.directory?(inner_assets_dir) ? inner_assets_dir : assets_dir
+    if File.directory?(zip_source_dir)
+      sh("cd #{zip_source_dir} && zip -r #{assets_zip} .")
       assets_checksum = sh("shasum -a 256 #{assets_zip} | cut -d ' ' -f1").strip
       assets_size = File.size(assets_zip)
     end

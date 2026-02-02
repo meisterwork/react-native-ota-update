@@ -2,6 +2,7 @@ import {NativeModules, NativeEventEmitter, Platform} from 'react-native';
 import {
   BundleManifest,
   BundleInfo,
+  BundleDebugInfo,
   OtaUpdateConfig,
   OtaUpdateState,
   OtaUpdateListener,
@@ -343,6 +344,21 @@ export class OtaUpdateService {
     } catch (error: any) {
       this.log(`Rollback failed: ${error.message}`, 'error');
       return false;
+    }
+  }
+
+  /**
+   * Get debug info about bundle loading (iOS only).
+   * Useful for diagnosing why OTA bundles might not be loading.
+   */
+  public async getDebugInfo(): Promise<BundleDebugInfo | null> {
+    if (!OtaUpdateModule?.getDebugInfo) return null;
+
+    try {
+      return await OtaUpdateModule.getDebugInfo();
+    } catch (error: any) {
+      this.log(`Failed to get debug info: ${error.message}`, 'error');
+      return null;
     }
   }
 
