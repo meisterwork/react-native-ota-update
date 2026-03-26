@@ -38,6 +38,7 @@ public class OtaUpdateModule extends ReactContextBaseJavaModule {
     private static final String KEY_CURRENT_BUNDLE_VERSION = "currentBundleVersion";
     private static final String KEY_START_COUNT = "startCount";
     private static final String KEY_BUNDLE_LOAD_FAILED = "bundleLoadFailed";
+    private static final String KEY_LAST_BUILD_VERSION = "lastBuildVersion";
 
     // Bundle file names
     private static final String BUNDLES_DIR = "bundles";
@@ -66,9 +67,47 @@ public class OtaUpdateModule extends ReactContextBaseJavaModule {
     /**
      * Get the path to the active custom bundle, if it exists.
      * Called from MainApplication to determine which bundle to load.
+     *
+     * If the APK build version has changed since the last run, all OTA bundles
+     * and preferences are cleared so the app uses the fresh JS bundle from the new APK.
      */
     @Nullable
     public static String getActiveBundlePath(Context context) {
+        int currentBuild = 0;
+        try {
+            currentBuild = context.getPackageManager()
+                .getPackageInfo(context.getPackageName(), 0).versionCode;
+        } catch (Exception e) {
+            Log.w(TAG, "Could not get APK versionCode", e);
+        }
+
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        int lastBuild = prefs.getInt(KEY_LAST_BUILD_VERSION, 0);
+
+        if (currentBuild > 0 && lastBuild != currentBuild) {
+            Log.i(TAG, "Build version changed from " + lastBuild + " to " + currentBuild + ", clearing OTA bundles");
+
+            File bundlesDir = new File(context.getFilesDir(), BUNDLES_DIR);
+            if (bundlesDir.exists()) {
+                File[] files = bundlesDir.listFiles();
+                if (files != null) {
+                    for (File file : files) {
+                        deleteRecursive(file);
+                    }
+                }
+            }
+
+            prefs.edit()
+                .putInt(KEY_LAST_BUILD_VERSION, currentBuild)
+                .putInt(KEY_CURRENT_BUNDLE_VERSION, 0)
+                .putInt(KEY_START_COUNT, 0)
+                .putBoolean(KEY_BUNDLE_LOAD_FAILED, false)
+                .remove("pendingBundleVersion")
+                .commit();
+
+            return null;
+        }
+
         File bundlesDir = new File(context.getFilesDir(), BUNDLES_DIR);
         File activeBundle = new File(bundlesDir, ACTIVE_BUNDLE);
 
@@ -76,6 +115,18 @@ public class OtaUpdateModule extends ReactContextBaseJavaModule {
             return activeBundle.getAbsolutePath();
         }
         return null;
+    }
+
+    private static void deleteRecursive(File file) {
+        if (file.isDirectory()) {
+            File[] children = file.listFiles();
+            if (children != null) {
+                for (File child : children) {
+                    deleteRecursive(child);
+                }
+            }
+        }
+        file.delete();
     }
 
     /**
